@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using Spectre.Console;
 
 namespace Prompt
@@ -6,58 +8,101 @@ namespace Prompt
     {
         public static void Main(string[] args)
         {
+            var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, eventArgs) =>
+            {
+                // Do not terminate the current process on Ctrl+C
+                eventArgs.Cancel = true;
+                cts.Cancel();
+            };
+
+            var result = RunPrompts(cts.Token);
+            if (result == null)
+                return;
+
+            // Summary
+            AnsiConsole.Write(new Rule("[yellow]Results[/]").RuleStyle("grey").LeftJustified());
+            const string NotAvailable = "[b]N/A[/]";
+            AnsiConsole.Write(new Table().AddColumns("[grey]Question[/]", "[grey]Answer[/]")
+                .RoundedBorder()
+                .BorderColor(Color.Grey)
+                .AddRow("[grey]Name[/]", result.Name ?? NotAvailable)
+                .AddRow("[grey]Favorite fruit[/]", result.Fruit ?? NotAvailable)
+                .AddRow("[grey]Favorite sport[/]", result.Sport ?? NotAvailable)
+                .AddRow("[grey]Age[/]", result.Age?.ToString() ?? NotAvailable)
+                .AddRow("[grey]Password[/]", result.Password ?? NotAvailable)
+                .AddRow("[grey]Mask[/]", result.Mask ?? NotAvailable)
+                .AddRow("[grey]Null Mask[/]", result.NullMask ?? NotAvailable)
+                .AddRow("[grey]Favorite color[/]", result.Color == null ? NotAvailable : result.Color.Length == 0 ? "Unknown" : result.Color));
+        }
+
+        public static Result? RunPrompts(CancellationToken cancellationToken)
+        {
             // Check if we can accept key strokes
             if (!AnsiConsole.Profile.Capabilities.Interactive)
             {
                 AnsiConsole.MarkupLine("[red]Environment does not support interaction.[/]");
-                return;
+                return null;
             }
 
             // Confirmation
-            if (!AskConfirmation())
+            try
             {
-                return;
+                if (!AnsiConsole.Confirm("Run prompt example?", cancellationToken: cancellationToken))
+                {
+                    AnsiConsole.MarkupLine("Ok... :(");
+                    return null;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("Canceled... :(");
+                return null;
             }
 
-            // Ask the user for some different things
-            WriteDivider("Strings");
-            var name = AskName();
+            string? name = null;
+            string? fruit = null;
+            string? sport = null;
+            int? age = null;
+            string? password = null;
+            string? mask = null;
+            string? nullMask = null;
+            string? color = null;
 
-            WriteDivider("Lists");
-            var fruit = AskFruit();
+            try
+            {
+                // Ask the user for some different things
+                WriteDivider("Strings");
+                name = AskName(cancellationToken);
 
-            WriteDivider("Choices");
-            var sport = AskSport();
+                WriteDivider("Lists");
+                fruit = AskFruit(cancellationToken);
 
-            WriteDivider("Integers");
-            var age = AskAge();
+                WriteDivider("Choices");
+                sport = AskSport(cancellationToken);
 
-            WriteDivider("Secrets");
-            var password = AskPassword();
+                WriteDivider("Integers");
+                age = AskAge(cancellationToken);
 
-            WriteDivider("Mask");
-            var mask = AskPasswordWithCustomMask();
+                WriteDivider("Secrets");
+                password = AskPassword(cancellationToken);
 
-            WriteDivider("Null Mask");
-            var nullMask = AskPasswordWithNullMask();
+                WriteDivider("Mask");
+                mask = AskPasswordWithCustomMask(cancellationToken);
 
-            WriteDivider("Optional");
-            var color = AskColor();
+                WriteDivider("Null Mask");
+                nullMask = AskPasswordWithNullMask(cancellationToken);
 
-            // Summary
-            AnsiConsole.WriteLine();
-            AnsiConsole.Write(new Rule("[yellow]Results[/]").RuleStyle("grey").LeftJustified());
-            AnsiConsole.Write(new Table().AddColumns("[grey]Question[/]", "[grey]Answer[/]")
-                .RoundedBorder()
-                .BorderColor(Color.Grey)
-                .AddRow("[grey]Name[/]", name)
-                .AddRow("[grey]Favorite fruit[/]", fruit)
-                .AddRow("[grey]Favorite sport[/]", sport)
-                .AddRow("[grey]Age[/]", age.ToString())
-                .AddRow("[grey]Password[/]", password)
-                .AddRow("[grey]Mask[/]", mask)
-                .AddRow("[grey]Null Mask[/]", nullMask)
-                .AddRow("[grey]Favorite color[/]", string.IsNullOrEmpty(color) ? "Unknown" : color));
+                WriteDivider("Optional");
+                color = AskColor(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                AnsiConsole.WriteLine();
+            }
+
+            return new Result(name, fruit, sport, age, password, mask, nullMask, color);
         }
 
         private static void WriteDivider(string text)
@@ -66,24 +111,14 @@ namespace Prompt
             AnsiConsole.Write(new Rule($"[yellow]{text}[/]").RuleStyle("grey").LeftJustified());
         }
 
-        public static bool AskConfirmation()
+        public static string AskName(CancellationToken cancellationToken)
         {
-            if (!AnsiConsole.Confirm("Run prompt example?"))
-            {
-                AnsiConsole.MarkupLine("Ok... :(");
-                return false;
-            }
-
-            return true;
-        }
-
-        public static string AskName()
-        {
-            var name = AnsiConsole.Ask<string>("What's your [green]name[/]?");
+            var name = AnsiConsole.Ask<string>("What's your [green]name[/]?", cancellationToken);
             return name;
         }
 
-        public static string AskFruit()
+        public static string
+            AskFruit(CancellationToken cancellationToken)
         {
             var favorites = AnsiConsole.Prompt(
                 new MultiSelectionPrompt<string>()
@@ -103,7 +138,7 @@ namespace Prompt
                         "Egg plant",  "Fig", "Grape", "Guava",
                         "Jackfruit", "Jambul", "Kiwano", "Kiwifruit", "Lime", "Lylo",
                         "Lychee", "Melon", "Nectarine", "Orange", "Olive"
-                    }));
+                    }), cancellationToken);
 
             var fruit = favorites.Count == 1 ? favorites[0] : null;
             if (string.IsNullOrWhiteSpace(fruit))
@@ -120,7 +155,7 @@ namespace Prompt
             return fruit;
         }
 
-        public static string AskSport()
+        public static string AskSport(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<string>("What's your [green]favorite sport[/]?")
@@ -128,10 +163,10 @@ namespace Prompt
                     .DefaultValue("Sport?")
                     .AddChoice("Soccer")
                     .AddChoice("Hockey")
-                    .AddChoice("Basketball"));
+                    .AddChoice("Basketball"), cancellationToken);
         }
 
-        public static int AskAge()
+        public static int AskAge(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<int>("How [green]old[/] are you?")
@@ -145,38 +180,40 @@ namespace Prompt
                             >= 123 => ValidationResult.Error("[red]You must be younger than the oldest person alive[/]"),
                             _ => ValidationResult.Success(),
                         };
-                    }));
+                    }), cancellationToken);
         }
 
-        public static string AskPassword()
+        public static string AskPassword(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<string>("Enter [green]password[/]?")
                     .PromptStyle("red")
-                    .Secret());
+                    .Secret(), cancellationToken);
         }
 
-        public static string AskPasswordWithCustomMask()
+        public static string AskPasswordWithCustomMask(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<string>("Enter [green]password[/]?")
                     .PromptStyle("red")
-                    .Secret('-'));
+                    .Secret('-'), cancellationToken);
         }
 
-        public static string AskPasswordWithNullMask()
+        public static string AskPasswordWithNullMask(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<string>("Enter [green]password[/]?")
                     .PromptStyle("red")
-                    .Secret(null));
+                    .Secret(null), cancellationToken);
         }
 
-        public static string AskColor()
+        public static string AskColor(CancellationToken cancellationToken)
         {
             return AnsiConsole.Prompt(
                 new TextPrompt<string>("[grey][[Optional]][/] What is your [green]favorite color[/]?")
-                    .AllowEmpty());
+                    .AllowEmpty(), cancellationToken);
         }
     }
+
+    public record Result(string? Name, string? Fruit, string? Sport, int? Age, string? Password, string? Mask, string? NullMask, string? Color);
 }
